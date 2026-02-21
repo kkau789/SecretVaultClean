@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Secret Vault Login</title>
+  <!-- WebAuthn JS library -->
+  <script src="https://cdn.jsdelivr.net/npm/@simplewebauthn/browser@latest/dist/simplewebauthn-browser.min.js"></script>
+</head>
+<body>
+  <h1>Secret Vault 🔐</h1>
+
+  <!-- WebAuthn login button -->
+  <button id="webauthn-login-btn">Login with Security Key</button>
+
+  <!-- PIN fallback -->
+  <form id="pin-login" method="POST" action="/pin-login">
+    <input type="password" name="pin" placeholder="Enter PIN" required>
+    <button type="submit">Login with PIN</button>
+  </form>
+
+  <script>
+    const btn = document.getElementById("webauthn-login-btn");
+    btn.onclick = async () => {
+      try {
+        // Get challenge from server
+        const options = await fetch("/webauthn-challenge").then(res => res.json());
+
+        // Start authentication
+        const credential = await SimpleWebAuthnBrowser.startAuthentication(options);
+
+        // Send credential to server to verify
+        const verifyResponse = await fetch("/verify-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credential)
+        });
+
+        if (verifyResponse.ok) {
+          window.location.href = "/";
+        } else {
+          alert("Login failed!");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("WebAuthn login failed");
+      }
+    };
+  </script>
+</body>
+</html>

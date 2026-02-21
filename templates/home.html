@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Secret Vault</title>
+</head>
+<body>
+  <h1>Welcome to Your Vault 🔐</h1>
+
+  <h2>Your Notes:</h2>
+  <pre>{{ notes }}</pre>  <!-- Flask will fill this with saved notes -->
+
+  <h2>Add a Note:</h2>
+  <form method="POST" action="/add">
+    <textarea name="note" placeholder="Write secret note..." required></textarea><br>
+    <button type="submit">Save Note</button>
+  </form>
+
+  <form method="POST" action="/logout">
+    <button type="submit">Logout</button>
+  </form>
+</body>
+</html>
