@@ -1,50 +1,96 @@
-<!DOCTYPE html>
-<html lang="en">
+ <!DOCTYPE html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Secret Vault Login</title>
-  <!-- WebAuthn JS library -->
-  <script src="https://cdn.jsdelivr.net/npm/@simplewebauthn/browser@latest/dist/simplewebauthn-browser.min.js"></script>
+    <title>Secret Vault</title>
 </head>
 <body>
-  <h1>Secret Vault 🔐</h1>
 
-  <!-- WebAuthn login button -->
-  <button id="webauthn-login-btn">Login with Security Key</button>
+<h2>Secret Vault 🔐</h2>
 
-  <!-- PIN fallback -->
-  <form id="pin-login" method="POST" action="/pin-login">
-    <input type="password" name="pin" placeholder="Enter PIN" required>
-    <button type="submit">Login with PIN</button>
-  </form>
+<button onclick="register()">Register Fingerprint</button>
+<button onclick="login()">Login with Fingerprint</button>
 
-  <script>
-    const btn = document.getElementById("webauthn-login-btn");
-    btn.onclick = async () => {
-      try {
-        // Get challenge from server
-        const options = await fetch("/webauthn-challenge").then(res => res.json());
+<p id="status"></p>
 
-        // Start authentication
-        const credential = await SimpleWebAuthnBrowser.startAuthentication(options);
+<script>
+function bufferDecode(value) {
+    return Uint8Array.from(atob(value), c => c.charCodeAt(0));
+}
 
-        // Send credential to server to verify
-        const verifyResponse = await fetch("/verify-login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(credential)
-        });
+function bufferEncode(value) {
+    return btoa(String.fromCharCode(...new Uint8Array(value)));
+}
 
-        if (verifyResponse.ok) {
-          window.location.href = "/";
-        } else {
-          alert("Login failed!");
-        }
-      } catch (err) {
-        console.error(err);
-        alert("WebAuthn login failed");
-      }
+async function register() {
+    document.getElementById("status").innerText = "Starting registration...";
+
+    const response = await fetch("/register/begin");
+    const options = await response.arrayBuffer();
+    const publicKey = CBOR.decode(options);
+
+    publicKey.challenge = bufferDecode(publicKey.challenge);
+    publicKey.user.id = bufferDecode(publicKey.user.id);
+
+    const credential = await navigator.credentials.create({ publicKey });
+
+    const credentialData = {
+        id: credential.id,
+        rawId: bufferEncode(credential.rawId),
+        response: {
+            attestationObject: bufferEncode(credential.response.attestationObject),
+            clientDataJSON: bufferEncode(credential.response.clientDataJSON)
+        },
+        type: credential.type
     };
-  </script>
+
+    await fetch("/register/complete", {
+        method: "POST",
+        body: CBOR.encode(credentialData)
+    });
+
+    document.getElementById("status").innerText = "Fingerprint registered successfully!";
+}
+
+async function login() {
+    document.getElementById("status").innerText = "Starting authentication...";
+
+    const response = await fetch("/login/begin");
+    const options = await response.arrayBuffer();
+    const publicKey = CBOR.decode(options);
+
+    publicKey.challenge = bufferDecode(publicKey.challenge);
+
+    if (publicKey.allowCredentials) {
+        publicKey.allowCredentials = publicKey.allowCredentials.map(cred => ({
+            ...cred,
+            id: bufferDecode(cred.id)
+        }));
+    }
+
+    const assertion = await navigator.credentials.get({ publicKey });
+
+    const authData = {
+        id: assertion.id,
+        rawId: bufferEncode(assertion.rawId),
+        response: {
+            authenticatorData: bufferEncode(assertion.response.authenticatorData),
+            clientDataJSON: bufferEncode(assertion.response.clientDataJSON),
+            signature: bufferEncode(assertion.response.signature),
+            userHandle: assertion.response.userHandle ? bufferEncode(assertion.response.userHandle) : null
+        },
+        type: assertion.type
+    };
+
+    await fetch("/login/complete", {
+        method: "POST",
+        body: CBOR.encode(authData)
+    });
+
+    window.location.href = "/";
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/cbor-js@0.1.0/cbor.js"></script>
+
 </body>
 </html>
