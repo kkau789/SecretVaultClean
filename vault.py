@@ -1,45 +1,53 @@
-kfrom flask import Flask, request, session, redirect, Response
+from flask import Flask, request, session, redirect, Response
+import cbor2 as cbor
 import os
-import cbor  # make sure cbor2 is installed
-# from your_server_module import server, credentials, websafe_encode, websafe_decode
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # random secret key for session
+app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey")  # set this in Render secrets!
 
-# =============== ROOT ===============
-@app.route("/")
-def home():
-    return """
-    <h2>Secret Vault</h2>
-    <p>Go to <a href='/login/begin'>Login</a> to start authentication.</p>
-    """
+# Dummy server and credentials for example purposes
+class DummyServer:
+    def authenticate_begin(self, credentials, user_verification):
+        return {"challenge": "dummy-challenge"}, "dummy-state"
 
-# =============== LOGIN ===============
+    def authenticate_complete(self, state, credential, data):
+        return {"status": "ok"}
+
+server = DummyServer()
+credentials = {"example": "cred"}  # Replace with real creds in production
+
+# ================= LOGIN =================
 @app.route("/login/begin", methods=["GET"])
 def login_begin():
-    # Example placeholders for server.auth
     auth_data, state = server.authenticate_begin(
         credentials.values(),
         user_verification="required"
     )
+
     session["state"] = state
-    return Response(cbor.encode(auth_data), content_type="application/cbor")
+    return Response(cbor.dumps(auth_data), content_type="application/cbor")
 
 @app.route("/login/complete", methods=["POST"])
 def login_complete():
-    data = cbor.decode(request.data)
+    data = cbor.loads(request.data)
     state = session["state"]
 
-    credential_id = websafe_encode(websafe_decode(data["rawId"]))
+    credential_id = data.get("rawId", "example")  # Replace with real decoding if needed
 
     auth_data = server.authenticate_complete(
         state,
-        credentials[credential_id],
+        credentials.get(credential_id),
         data
     )
+
     return redirect("/")
 
-# =============== RUN ===============
+# ================= HOME =================
+@app.route("/")
+def home():
+    return "🎉 Secret Vault is LIVE! 🎉"
+
+# ================= RUN =================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
