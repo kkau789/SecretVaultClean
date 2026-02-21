@@ -1,85 +1,29 @@
-from flask import Flask, request, session, Response, redirect, render_template
-from fido2.server import Fido2Server
-from fido2.webauthn import PublicKeyCredentialRpEntity
-from fido2 import cbor
-from fido2.utils import websafe_encode, websafe_decode
+kfrom flask import Flask, request, session, redirect, Response
 import os
+import cbor  # make sure cbor2 is installed
+# from your_server_module import server, credentials, websafe_encode, websafe_decode
 
 app = Flask(__name__)
-app.secret_key = "super_random_secret_key_123456"
+app.secret_key = os.urandom(24)  # random secret key for session
 
-# ===== RP CONFIG (MUST MATCH YOUR DOMAIN) =====
-rp = PublicKeyCredentialRpEntity(
-    id="secretvaultclean.onrender.com",
-    name="Secret Vault"
-)
-
-server = Fido2Server(rp)
-
-# Simple in-memory storage (for demo)
-users = {}
-credentials = {}
-
-# ================= ROUTES =================
-
+# =============== ROOT ===============
 @app.route("/")
 def home():
-    return render_template("home.html")
+    return """
+    <h2>Secret Vault</h2>
+    <p>Go to <a href='/login/begin'>Login</a> to start authentication.</p>
+    """
 
-
-@app.route("/login")
-def login_page():
-    return render_template("login.html")
-
-
-# ================= REGISTER =================
-
-@app.route("/register/begin", methods=["GET"])
-def register_begin():
-    user_id = os.urandom(16)
-
-    registration_data, state = server.register_begin(
-        {
-            "id": user_id,
-            "name": "user",
-            "displayName": "Vault User",
-        },
-        credentials.values(),
-        user_verification="required"
-    )
-
-    session["state"] = state
-    session["user_id"] = websafe_encode(user_id)
-
-    return Response(cbor.encode(registration_data), content_type="application/cbor")
-
-
-@app.route("/register/complete", methods=["POST"])
-def register_complete():
-    data = cbor.decode(request.data)
-    state = session["state"]
-
-    auth_data = server.register_complete(state, data)
-
-    credential_id = websafe_encode(auth_data.credential_id)
-    credentials[credential_id] = auth_data.credential_data
-
-    return "Registration successful"
-
-
-# ================= LOGIN =================
-
+# =============== LOGIN ===============
 @app.route("/login/begin", methods=["GET"])
 def login_begin():
+    # Example placeholders for server.auth
     auth_data, state = server.authenticate_begin(
         credentials.values(),
         user_verification="required"
     )
-
     session["state"] = state
-
     return Response(cbor.encode(auth_data), content_type="application/cbor")
-
 
 @app.route("/login/complete", methods=["POST"])
 def login_complete():
@@ -93,13 +37,9 @@ def login_complete():
         credentials[credential_id],
         data
     )
-
     return redirect("/")
 
-
-# ================= RUN =================
-
+# =============== RUN ===============
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
