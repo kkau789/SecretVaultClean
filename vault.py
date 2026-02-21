@@ -1,141 +1,103 @@
-import os
-import json
-from flask import Flask, render_template, request, session, redirect, url_for, jsonify
+from flask import Flask, request, session, Response, redirect, render_template
 from fido2.server import Fido2Server
-from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
-from fido2.utils import websafe_encode, websafe_decode
+from fido2.webauthn import PublicKeyCredentialRpEntity
 from fido2 import cbor
+from fido2.utils import websafe_encode, websafe_decode
+import os
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "supersecret")
+app.secret_key = "super_random_secret_key_123456"
 
-RP_ID = "secretvaultclean.onrender.com"
-rp = PublicKeyCredentialRpEntity(name="SecretVault", id=RP_ID)
+# ===== RP CONFIG (MUST MATCH YOUR DOMAIN) =====
+rp = PublicKeyCredentialRpEntity(
+    id="secretvaultclean.onrender.com",
+    name="Secret Vault"
+)
+
 server = Fido2Server(rp)
 
-CREDENTIAL_FILE = "credential.json"
-NOTE_FILE = "secrets.txt"
+# Simple in-memory storage (for demo)
+users = {}
+credentials = {}
 
-# ----------------------
-# Home
-# ----------------------
+# ================= ROUTES =================
 
 @app.route("/")
 def home():
-    if not session.get("logged_in"):
-        return redirect(url_for("login"))
+    return render_template("home.html")
 
-    notes = ""
-    if os.path.exists(NOTE_FILE):
-        with open(NOTE_FILE, "r") as f:
-            notes = f.read()
-
-    return render_template("home.html", notes=notes)
 
 @app.route("/login")
-def login():
+def login_page():
     return render_template("login.html")
 
-# ----------------------
-# Registration
-# ----------------------
+
+# ================= REGISTER =================
 
 @app.route("/register/begin", methods=["GET"])
 def register_begin():
-    user = PublicKeyCredentialUserEntity(
-        id=b"vault-user",
-        name="vaultuser",
-        display_name="Vault User"
-    )
+    user_id = os.urandom(16)
 
     registration_data, state = server.register_begin(
-        user,
-        credentials=[]
+        {
+            "id": user_id,
+            "name": "user",
+            "displayName": "Vault User",
+        },
+        credentials.values(),
+        user_verification="required"
     )
 
     session["state"] = state
-    return cbor.dumps(registration_data)
+    session["user_id"] = websafe_encode(user_id)
+
+    return Response(cbor.encode(registration_data), content_type="application/cbor")
+
 
 @app.route("/register/complete", methods=["POST"])
 def register_complete():
-    data = cbor.loads(request.get_data())
-    auth_data = server.register_complete(session["state"], data)
+    data = cbor.decode(request.data)
+    state = session["state"]
 
-    with open(CREDENTIAL_FILE, "w") as f:
-        json.dump({
-            "credential_id": websafe_encode(auth_data.credential_id).decode(),
-            "public_key": websafe_encode(auth_data.credential_public_key).decode()
-        }, f)
+    auth_data = server.register_complete(state, data)
 
-    return jsonify({"status": "registered"})
+    credential_id = websafe_encode(auth_data.credential_id)
+    credentials[credential_id] = auth_data.credential_data
 
-# ----------------------
-# Authentication
-# ----------------------
+    return "Registration successful"
+
+
+# ================= LOGIN =================
 
 @app.route("/login/begin", methods=["GET"])
 def login_begin():
-    if not os.path.exists(CREDENTIAL_FILE):
-        return jsonify({"error": "No credential registered"}), 400
-
-    with open(CREDENTIAL_FILE, "r") as f:
-        stored = json.load(f)
-
-    credential_id = websafe_decode(stored["credential_id"])
-
-    auth_data, state = server.authenticate_begin([{
-        "type": "public-key",
-        "id": credential_id
-    }])
+    auth_data, state = server.authenticate_begin(
+        credentials.values(),
+        user_verification="required"
+    )
 
     session["state"] = state
-    return cbor.dumps(auth_data)
+
+    return Response(cbor.encode(auth_data), content_type="application/cbor")
+
 
 @app.route("/login/complete", methods=["POST"])
 def login_complete():
-    data = cbor.loads(request.get_data())
+    data = cbor.decode(request.data)
+    state = session["state"]
 
-    with open(CREDENTIAL_FILE, "r") as f:
-        stored = json.load(f)
+    credential_id = websafe_encode(websafe_decode(data["rawId"]))
 
-    credential_id = websafe_decode(stored["credential_id"])
-    public_key = websafe_decode(stored["public_key"])
-
-    server.authenticate_complete(
-        session["state"],
-        [{
-            "type": "public-key",
-            "id": credential_id,
-            "publicKey": public_key
-        }],
+    auth_data = server.authenticate_complete(
+        state,
+        credentials[credential_id],
         data
     )
 
-    session["logged_in"] = True
-    return jsonify({"status": "ok"})
+    return redirect("/")
 
-# ----------------------
-# Notes
-# ----------------------
 
-@app.route("/add", methods=["POST"])
-def add_note():
-    if not session.get("logged_in"):
-        return redirect(url_for("login"))
-
-    note = request.form.get("note")
-    with open(NOTE_FILE, "a") as f:
-        f.write(note + "\n")
-
-    return redirect(url_for("home"))
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-# ----------------------
+# ================= RUN =================
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)
