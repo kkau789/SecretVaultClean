@@ -1,53 +1,81 @@
-from flask import Flask, request, session, redirect, Response
-import cbor2 as cbor
+from flask import Flask, request, render_template, jsonify
+from fido2.server import Fido2Server
+from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
+from fido2.utils import websafe_encode, websafe_decode
 import os
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "supersecretkey")  # set this in Render secrets!
 
-# Dummy server and credentials for example purposes
-class DummyServer:
-    def authenticate_begin(self, credentials, user_verification):
-        return {"challenge": "dummy-challenge"}, "dummy-state"
+# IMPORTANT: Replace with your real Render domain
+RP_ID = "secretvaultclean.onrender.com"
+RP_NAME = "Secret Vault"
 
-    def authenticate_complete(self, state, credential, data):
-        return {"status": "ok"}
+rp = PublicKeyCredentialRpEntity(RP_ID, RP_NAME)
+server = Fido2Server(rp)
 
-server = DummyServer()
-credentials = {"example": "cred"}  # Replace with real creds in production
+# Simple in-memory storage (for testing)
+users = {}
+credentials = {}
 
-# ================= LOGIN =================
-@app.route("/login/begin", methods=["GET"])
-def login_begin():
-    auth_data, state = server.authenticate_begin(
-        credentials.values(),
-        user_verification="required"
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/register/begin")
+def register_begin():
+    username = "user"
+
+    user = PublicKeyCredentialUserEntity(
+        id=os.urandom(16),
+        name=username,
+        display_name=username,
     )
 
-    session["state"] = state
-    return Response(cbor.dumps(auth_data), content_type="application/cbor")
+    registration_data, state = server.register_begin(
+        user,
+        credentials.get(username, []),
+        user_verification="required",
+    )
+
+    users[username] = {"state": state}
+    return jsonify(registration_data)
+
+@app.route("/register/complete", methods=["POST"])
+def register_complete():
+    username = "user"
+    data = request.json
+    state = users[username]["state"]
+
+    auth_data = server.register_complete(state, data)
+
+    credentials.setdefault(username, []).append(auth_data.credential_data)
+    return jsonify({"status": "ok"})
+
+@app.route("/login/begin")
+def login_begin():
+    username = "user"
+
+    auth_data, state = server.authenticate_begin(
+        credentials.get(username, []),
+        user_verification="required",
+    )
+
+    users[username] = {"state": state}
+    return jsonify(auth_data)
 
 @app.route("/login/complete", methods=["POST"])
 def login_complete():
-    data = cbor.loads(request.data)
-    state = session["state"]
+    username = "user"
+    data = request.json
+    state = users[username]["state"]
 
-    credential_id = data.get("rawId", "example")  # Replace with real decoding if needed
-
-    auth_data = server.authenticate_complete(
+    server.authenticate_complete(
         state,
-        credentials.get(credential_id),
-        data
+        credentials.get(username, []),
+        data,
     )
 
-    return redirect("/")
+    return jsonify({"status": "ok"})
 
-# ================= HOME =================
-@app.route("/")
-def home():
-    return "🎉 Secret Vault is LIVE! 🎉"
-
-# ================= RUN =================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run()

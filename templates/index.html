@@ -5,24 +5,33 @@
 </head>
 <body>
   <h1>🔐 Secret Vault</h1>
+
   <button onclick="register()">Register Fingerprint</button>
   <button onclick="login()">Login with Fingerprint</button>
 
   <script>
+    function bufferDecode(value) {
+      return Uint8Array.from(atob(value), c => c.charCodeAt(0));
+    }
+
+    function bufferEncode(value) {
+      return btoa(String.fromCharCode(...new Uint8Array(value)));
+    }
+
     async function register() {
-      const response = await fetch('/register/begin');
+      const response = await fetch("/register/begin");
       const options = await response.json();
 
-      options.challenge = Uint8Array.from(atob(options.challenge), c => c.charCodeAt(0));
-      options.user.id = Uint8Array.from(atob(options.user.id), c => c.charCodeAt(0));
+      options.challenge = bufferDecode(options.challenge);
+      options.user.id = bufferDecode(options.user.id);
 
       const credential = await navigator.credentials.create({
         publicKey: options
       });
 
-      await fetch('/register/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      await fetch("/register/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credential)
       });
 
@@ -30,18 +39,18 @@
     }
 
     async function login() {
-      const response = await fetch('/login/begin');
+      const response = await fetch("/login/begin");
       const options = await response.json();
 
-      options.challenge = Uint8Array.from(atob(options.challenge), c => c.charCodeAt(0));
+      options.challenge = bufferDecode(options.challenge);
 
       const assertion = await navigator.credentials.get({
         publicKey: options
       });
 
-      await fetch('/login/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      await fetch("/login/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(assertion)
       });
 
