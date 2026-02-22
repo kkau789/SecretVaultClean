@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Secret Vault</title>
+</head>
+<body>
+  <h1>🔐 Secret Vault</h1>
+  <button onclick="register()">Register Fingerprint</button>
+  <button onclick="login()">Login with Fingerprint</button>
+
+  <script>
+    async function register() {
+      const response = await fetch('/register/begin');
+      const options = await response.json();
+
+      options.challenge = Uint8Array.from(atob(options.challenge), c => c.charCodeAt(0));
+      options.user.id = Uint8Array.from(atob(options.user.id), c => c.charCodeAt(0));
+
+      const credential = await navigator.credentials.create({
+        publicKey: options
+      });
+
+      await fetch('/register/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credential)
+      });
+
+      alert("Registration successful!");
+    }
+
+    async function login() {
+      const response = await fetch('/login/begin');
+      const options = await response.json();
+
+      options.challenge = Uint8Array.from(atob(options.challenge), c => c.charCodeAt(0));
+
+      const assertion = await navigator.credentials.get({
+        publicKey: options
+      });
+
+      await fetch('/login/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(assertion)
+      });
+
+      alert("Login successful!");
+    }
+  </script>
+</body>
+</html>
