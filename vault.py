@@ -1,90 +1,37 @@
-from flask import Flask, request, render_template, jsonify
-from fido2.server import Fido2Server
-from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
-import os
+kimport os
+from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
 
-# --- FIDO2 Setup ---
-# Use keyword args to fix TypeError with latest fido2
-rp = PublicKeyCredentialRpEntity(id="secretvaultclean.onrender.com", name="Secret Vault")
-server = Fido2Server(rp)
+# Your biometric API key (the one Samsung gave you)
+BIOMETRIC_API_KEY = "YOUR_API_KEY_HERE"
 
-# Simple in-memory storage (for testing/demo purposes)
-users = {}
-credentials = {}
-
-# --- Routes ---
 @app.route("/")
 def index():
     return render_template("index.html")
 
-
-# Registration begin
-@app.route("/register/begin")
-def register_begin():
-    username = "user"
-
-    user = PublicKeyCredentialUserEntity(
-        id=os.urandom(16),
-        name=username,
-        display_name=username,
-    )
-
-    registration_data, state = server.register_begin(
-        user,
-        credentials.get(username, []),
-        user_verification="required",
-    )
-
-    users[username] = {"state": state}
-    return jsonify(registration_data)
-
-
-# Registration complete
-@app.route("/register/complete", methods=["POST"])
-def register_complete():
-    username = "user"
+@app.route("/register-fingerprint", methods=["POST"])
+def register_fingerprint():
     data = request.json
-    state = users[username]["state"]
+    if data.get("apiKey") != BIOMETRIC_API_KEY:
+        return jsonify({"error": "Unauthorized"}), 403
 
-    auth_data = server.register_complete(state, data)
-    credentials.setdefault(username, []).append(auth_data.credential_data)
+    # Pseudo-code for Knox SDK call
+    # result = knox.register_fingerprint(user_id)
+    result = {"status": "success", "message": "Fingerprint popup should appear now"}
+    return jsonify(result)
 
-    return jsonify({"status": "ok"})
-
-
-# Login begin
-@app.route("/login/begin")
-def login_begin():
-    username = "user"
-
-    auth_data, state = server.authenticate_begin(
-        credentials.get(username, []),
-        user_verification="required",
-    )
-
-    users[username] = {"state": state}
-    return jsonify(auth_data)
-
-
-# Login complete
-@app.route("/login/complete", methods=["POST"])
-def login_complete():
-    username = "user"
+@app.route("/login-fingerprint", methods=["POST"])
+def login_fingerprint():
     data = request.json
-    state = users[username]["state"]
+    if data.get("apiKey") != BIOMETRIC_API_KEY:
+        return jsonify({"error": "Unauthorized"}), 403
 
-    server.authenticate_complete(
-        state,
-        credentials.get(username, []),
-        data,
-    )
+    # Pseudo-code for Knox SDK call
+    # result = knox.verify_fingerprint(user_id)
+    result = {"status": "success", "message": "Fingerprint verified"}
+    return jsonify(result)
 
-    return jsonify({"status": "ok"})
-
-
-# --- Run App ---
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Use Render PORT env or default 5000 locally
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
