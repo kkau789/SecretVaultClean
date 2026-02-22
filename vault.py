@@ -1,26 +1,26 @@
 from flask import Flask, request, render_template, jsonify
 from fido2.server import Fido2Server
 from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
-from fido2.utils import websafe_encode, websafe_decode
 import os
 
 app = Flask(__name__)
 
-# IMPORTANT: Replace with your real Render domain
-RP_ID = "secretvaultclean.onrender.com"
-RP_NAME = "Secret Vault"
-
-rp = PublicKeyCredentialRpEntity(RP_ID, RP_NAME)
+# --- FIDO2 Setup ---
+# Use keyword args to fix TypeError with latest fido2
+rp = PublicKeyCredentialRpEntity(id="secretvaultclean.onrender.com", name="Secret Vault")
 server = Fido2Server(rp)
 
-# Simple in-memory storage (for testing)
+# Simple in-memory storage (for testing/demo purposes)
 users = {}
 credentials = {}
 
+# --- Routes ---
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
+# Registration begin
 @app.route("/register/begin")
 def register_begin():
     username = "user"
@@ -40,6 +40,8 @@ def register_begin():
     users[username] = {"state": state}
     return jsonify(registration_data)
 
+
+# Registration complete
 @app.route("/register/complete", methods=["POST"])
 def register_complete():
     username = "user"
@@ -47,10 +49,12 @@ def register_complete():
     state = users[username]["state"]
 
     auth_data = server.register_complete(state, data)
-
     credentials.setdefault(username, []).append(auth_data.credential_data)
+
     return jsonify({"status": "ok"})
 
+
+# Login begin
 @app.route("/login/begin")
 def login_begin():
     username = "user"
@@ -63,6 +67,8 @@ def login_begin():
     users[username] = {"state": state}
     return jsonify(auth_data)
 
+
+# Login complete
 @app.route("/login/complete", methods=["POST"])
 def login_complete():
     username = "user"
@@ -77,5 +83,7 @@ def login_complete():
 
     return jsonify({"status": "ok"})
 
+
+# --- Run App ---
 if __name__ == "__main__":
     app.run()
