@@ -86,4 +86,5 @@ def login_complete():
 
 # --- Run App ---
 if __name__ == "__main__":
-    app.run()
+    port = int(os.environ.get("PORT", 5000))  # Use Render PORT env or default 5000 locally
+    app.run(host="0.0.0.0", port=port)
